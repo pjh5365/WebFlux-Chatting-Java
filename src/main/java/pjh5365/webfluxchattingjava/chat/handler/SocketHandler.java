@@ -16,6 +16,7 @@ import pjh5365.webfluxchattingjava.chat.domain.ChatMessage;
 import pjh5365.webfluxchattingjava.chat.domain.ClientSession;
 import pjh5365.webfluxchattingjava.chat.domain.ClientStatus;
 import pjh5365.webfluxchattingjava.chat.service.ClientSessionRegistry;
+import pjh5365.webfluxchattingjava.chat.service.HttpPublisher;
 import pjh5365.webfluxchattingjava.chat.service.RoomSinkManager;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -32,6 +33,7 @@ public class SocketHandler implements WebSocketHandler {
     private final RoomSinkManager roomSinkManager;
     private final ClientSessionRegistry sessionRegistry;
     private final ObjectMapper objectMapper;
+    private final HttpPublisher httpPublisher;
 
     @Override
     public Mono<Void> handle(WebSocketSession session) {
@@ -63,9 +65,7 @@ public class SocketHandler implements WebSocketHandler {
                 .doOnNext(msg -> {
                     msg.setMessageId(UUID.randomUUID().toString());
                     msg.setUserId(userId);
-
-                    roomSinkManager.emit(msg.getChatroomId(), msg); // 로컬 서버에 메시지 처리
-                    // TODO: 이중화 서버로 전송하기
+                    httpPublisher.sendMessage(msg); // 자신을 포함한 모든 서버에 전송
                 }).then();
 
         return Mono.when(outbound, inbound)
