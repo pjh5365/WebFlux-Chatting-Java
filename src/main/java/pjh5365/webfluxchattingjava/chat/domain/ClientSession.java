@@ -2,7 +2,6 @@ package pjh5365.webfluxchattingjava.chat.domain;
 
 import java.time.Duration;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import lombok.Getter;
@@ -21,7 +20,7 @@ public class ClientSession {
 
     private static final Duration TTL = Duration.ofSeconds(30); // 30초간의 대기 시간
     private final String userId; // 사용자 정보
-    private final Sinks.Many<ChatMessage> clientSinks = Sinks.many().unicast().onBackpressureBuffer(); // 사용자가 참가중인 모든 방의 Sinks를 전부 구독해 한번에 받을 Sinks
+    private Sinks.Many<ChatMessage> clientSinks = Sinks.many().unicast().onBackpressureBuffer(); // 사용자가 참가중인 모든 방의 Sinks를 전부 구독해 한번에 받을 Sinks
     private final Map<String, Disposable> roomSubscribeInfo = new ConcurrentHashMap<>(); // 각 채팅방별 구독종료 메서드를 가지고 있는 해시맵 (채팅방에서 나갈때 해당 작업을 수행하면 구독을 해제할 수 있다)
 
     @Getter
@@ -52,6 +51,7 @@ public class ClientSession {
 
     public void onReconnect() {
         state = ClientStatus.CONNECTED;
+        clientSinks = Sinks.many().unicast().onBackpressureBuffer(); // 클라이언트가 재연결되면 Sinks를 새로 교체한다
     }
 
     public void closeIfExpire() {
