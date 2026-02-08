@@ -14,12 +14,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import pjh5365.webfluxchattingjava.chat.domain.ChatMessage;
 import pjh5365.webfluxchattingjava.chat.domain.ClientSession;
-import pjh5365.webfluxchattingjava.chat.domain.ClientStatus;
-import pjh5365.webfluxchattingjava.chat.service.ClientSessionRegistry;
 import pjh5365.webfluxchattingjava.chat.service.HttpPublisher;
-import pjh5365.webfluxchattingjava.chat.service.RoomSinkManager;
+import pjh5365.webfluxchattingjava.chat.service.RoomManager;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
 /**
  * 채팅 소켓 핸들러
@@ -30,10 +27,9 @@ import reactor.core.scheduler.Schedulers;
 @RequiredArgsConstructor
 public class SocketHandler implements WebSocketHandler {
 
-    private final RoomSinkManager roomSinkManager;
-    private final ClientSessionRegistry sessionRegistry;
     private final ObjectMapper objectMapper;
     private final HttpPublisher httpPublisher;
+    private final RoomManager roomManager;
 
     @Override
     public Mono<Void> handle(WebSocketSession session) {
@@ -42,18 +38,10 @@ public class SocketHandler implements WebSocketHandler {
                 .getQuery()
                 .replace("userId=", "");
 
-        ClientSession clientSession = sessionRegistry.getOrCreate(userId);
-
-        if (clientSession.getState() == ClientStatus.WAITING) { // 대기상태라면
-            sessionRegistry.onReconnect(userId); // 재연결처리
-        }
-
         List<String> rooms = List.of("room1", "room2"); // 사용자가 실제로 접속하고 있는 채팅방의 일련번호 리스트
-        rooms.forEach(room -> clientSession // 참여중인 채팅방 목록의 Sinks 모두 구독
-                .subscribeRoom(room, roomSinkManager
-                        .flux(room)
-                        .publishOn(Schedulers.boundedElastic())) // 구독할땐 비동기로 메시지를 처리한다
-        );
+        ClientSession clientSession = new ClientSession(userId, session, objectMapper); // 사용자ID, 웹소켓으로 사용자 객체 생성
+
+        roomManager.subscribe(rooms, clientSession); // 사용자가 참여중인 모든 채팅방에 사용자 웹소켓세션 저장
 
         // 서버 -> 클라이언트로의 전송
         Mono<Void> outbound = session.send(clientSession.getFlux().map(this::toJson).map(session::textMessage));
@@ -70,7 +58,7 @@ public class SocketHandler implements WebSocketHandler {
 
         return Mono.when(outbound, inbound)
                 .doFinally(sig -> {
-                    sessionRegistry.onDisconnect(userId);
+                    roomManager.unsubscribeRoom(rooms, userId);
                 });
     }
 

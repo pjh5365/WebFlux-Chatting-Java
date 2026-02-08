@@ -6,7 +6,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import lombok.RequiredArgsConstructor;
 import pjh5365.webfluxchattingjava.chat.domain.ChatMessage;
-import pjh5365.webfluxchattingjava.chat.service.RoomSinkManager;
+import pjh5365.webfluxchattingjava.chat.service.RoomManager;
 import reactor.core.publisher.Mono;
 
 /**
@@ -18,11 +18,11 @@ import reactor.core.publisher.Mono;
 @RequiredArgsConstructor
 public class ChatController {
 
-    private final RoomSinkManager roomSinkManager;
+    private final RoomManager roomManager;
 
     @PostMapping("/chat/send")
     public Mono<Void> getMessage(@RequestBody ChatMessage chatMessage) {
-        roomSinkManager.emit(chatMessage.getChatroomId(), chatMessage); // 전달받은 메시지 로컬에서 처리
+        roomManager.emit(chatMessage.getChatroomId(), chatMessage); // 전달받은 메시지 로컬에서 처리
 
         return Mono.empty();
     }

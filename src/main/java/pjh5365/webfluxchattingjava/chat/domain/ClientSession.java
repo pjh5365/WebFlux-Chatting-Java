@@ -1,80 +1,33 @@
 package pjh5365.webfluxchattingjava.chat.domain;
 
-import java.time.Duration;
-import java.util.Map;
-import java.util.Queue;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import org.springframework.web.reactive.socket.WebSocketSession;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
-import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
 
 /**
  * 웹 소켓에 연결한 클라이언트의 세션 정보
  * @author : 박지혁
- * @since : 2026/01/16
+ * @since : 2026/02/08
  */
+@Getter
 @RequiredArgsConstructor
 public class ClientSession {
 
-    private static final Duration TTL = Duration.ofSeconds(30); // 30초간의 대기 시간
     private final String userId; // 사용자 정보
-    private Sinks.Many<ChatMessage> clientSinks = Sinks.many().unicast().onBackpressureBuffer(); // 사용자가 참가중인 모든 방의 Sinks를 전부 구독해 한번에 받을 Sinks
-    private final Map<String, Disposable> roomSubscribeInfo = new ConcurrentHashMap<>(); // 각 채팅방별 구독종료 메서드를 가지고 있는 해시맵 (채팅방에서 나갈때 해당 작업을 수행하면 구독을 해제할 수 있다)
-    private Queue<ChatMessage> failedMessageQueue = new ConcurrentLinkedQueue<>(); // 각 클라이언트의 Sinks로 전송하지 못한 메시지를 저장하고 있을 메시지 큐
-
-    @Getter
-    private volatile ClientStatus state = ClientStatus.CONNECTED;
-    private volatile long waitingUntil = 0L;
-
-    public void subscribeRoom(String chatroomId, Flux<ChatMessage> roomFlux) {
-        Disposable disposable = roomFlux.subscribe(msg -> { // 각 채팅방별 Sinks를 구독하고 있고, 각 채팅방에서 메시지가 전달된다면
-            Sinks.EmitResult result = clientSinks.tryEmitNext(msg); // 사용자의 개별 Sinks로 전송을 시도한다.
-            if (result.isFailure()) { // 전송에 실패하면
-                failedMessageQueue.add(msg); // 메시지 큐에 담고 따로 처리한다. (추후 대기 시간을 가지고 재전송시도, 끝까지 실패하면 푸시 메시지 전송 등등)
-            }
-        }); // 특정 채팅방의 Flux를 구독하고 메시지가 오면 clientSinks로 전송한다.
-
-        roomSubscribeInfo.put(chatroomId, disposable);
-    }
-
-    public void unsubscribeRoom(String chatroomId) {
-        Disposable disposable = roomSubscribeInfo.remove(chatroomId);
-        if (disposable != null) { // 구독 정보가 남아있다면
-            disposable.dispose(); // 구독 종료 (해당 채팅방 나가기 처리)
-        }
-    }
-
-    public void onDisconnect() {
-        state = ClientStatus.WAITING; // 연결이 끊기면 대기 상태로 변경
-        waitingUntil = System.currentTimeMillis() + TTL.toMillis(); // 대기할 시간 설정
-    }
-
-    public boolean canReconnect() { // 재연결이 가능한 상태인가
-        return state == ClientStatus.WAITING && System.currentTimeMillis() <= waitingUntil;
-    }
-
-    public void onReconnect() {
-        state = ClientStatus.CONNECTED;
-        clientSinks = Sinks.many().unicast().onBackpressureBuffer(); // 클라이언트가 재연결되면 Sinks를 새로 교체한다
-    }
-
-    public void closeIfExpire() {
-        if (state == ClientStatus.WAITING && System.currentTimeMillis() > waitingUntil) {
-            close();
-        }
-    }
-
-    public void close() { // 클라이언트가 소켓을 종료할때
-        state = ClientStatus.CLOSED;
-        roomSubscribeInfo.values().forEach(Disposable::dispose); // 구독중인 모든 채팅방을 구독종료하고
-        clientSinks.tryEmitComplete(); // Sinks를 종료한다.
-    }
+    private final WebSocketSession socketSession; // 사용자의 웹소켓
+    private final ObjectMapper objectMapper;
+    private final Sinks.Many<ChatMessage> clientSinks = Sinks.many().unicast().onBackpressureBuffer(); // 클라이언트로 전송할 Sinks
 
     public Flux<ChatMessage> getFlux() { // 사용자의 Sinks 반환
         return clientSinks.asFlux();
+    }
+
+    public void sendMessage(ChatMessage chatMessage) {
+        clientSinks.tryEmitNext(chatMessage);
     }
 }
